@@ -1,6 +1,9 @@
 """Personal portfolio for Epilan, Gian Cedrick — built with Streamlit."""
 
+from __future__ import annotations
+
 import json
+import os
 import re
 from pathlib import Path
 
@@ -212,15 +215,82 @@ def photo_dialog() -> None:
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+RESEND_ENDPOINT = "https://api.resend.com/emails"
+MAX_MESSAGE_CHARS = 2000
+
+
+def _setting(name: str) -> str:
+    """Read a setting from the environment, falling back to Streamlit secrets.
+
+    Render injects environment variables, so those are checked first. A local
+    `.streamlit/secrets.toml` holds the same values for development.
+    """
+    value = os.environ.get(name, "")
+    if value:
+        return value.strip()
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        # No secrets file exists — this happens on a fresh checkout.
+        return ""
+    return str(value).strip()
+
+
+def send_contact_message(name: str, email: str, message: str) -> tuple[bool, str]:
+    """Deliver a contact form submission to my inbox through Resend.
+
+    Returns (sent, detail). The detail is written to the server logs; it
+    never contains the visitor's message.
+    """
+    api_key = _setting("RESEND_API_KEY")
+    to_email = _setting("CONTACT_TO_EMAIL")
+    from_email = _setting("RESEND_FROM") or "Portfolio <onboarding@resend.dev>"
+
+    if not api_key or not to_email:
+        return False, "RESEND_API_KEY and CONTACT_TO_EMAIL are not configured."
+
+    # Collapse whitespace so the name cannot carry a newline into the subject.
+    subject_name = " ".join(name.split())
+
+    payload = {
+        "from": from_email,
+        "to": [to_email],
+        # Replying to the message goes straight to the visitor, not to me.
+        "reply_to": email,
+        "subject": f"Portfolio contact from {subject_name}",
+        "text": f"Name: {name}\nEmail: {email}\n\n{message}\n",
+    }
+
+    try:
+        response = requests.post(
+            RESEND_ENDPOINT,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        return False, f"request failed: {exc}"
+
+    if response.ok:
+        return True, "delivered"
+
+    try:
+        detail = response.json().get("message", response.text)
+    except ValueError:
+        detail = response.text
+    return False, f"resend returned {response.status_code}: {detail}"
+
 
 @st.dialog("Get in touch", width="medium", on_dismiss=_close_dialog)
 def contact_dialog() -> None:
-    """A small form that says thank you once it is sent."""
+    """A small form that sends the message straight to my inbox."""
     if st.session_state.get("contact_sent"):
         name = st.session_state.get("contact_name", "")
         st.success(f"Thanks, {name}! 🎉 I've got your message.")
         st.markdown("I'll get back to you as soon as I can — talk soon!")
-        st.caption("This form is a placeholder for now, so nothing was actually sent.")
         if st.button("Close", key="contact_close", type="primary", width="stretch"):
             del st.session_state["contact_sent"]
             del st.session_state["contact_name"]
@@ -228,23 +298,54 @@ def contact_dialog() -> None:
             st.rerun()
         return
 
+    # A field people never see. Bots that fill in every input trip it, and
+    # the submission is quietly dropped.
+    st.markdown(
+        """
+        <style>
+        [class*="st-key-contact_hp"] { display: none; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     with st.form("contact_form"):
+        with st.container(key="contact_hp"):
+            st.text_input("Leave this field empty", key="contact_hp_field")
         name = st.text_input("Your name", placeholder="Ada Lovelace")
         email = st.text_input("Your email", placeholder="ada@example.com")
         message = st.text_area("Message", placeholder="Tell me about your project…", height=140)
         submitted = st.form_submit_button("Send message", type="primary")
 
-    if submitted:
-        if not name.strip():
-            st.error("Please tell me your name.")
-        elif not EMAIL_RE.match(email.strip()):
-            st.error("That email address doesn't look right.")
-        elif not message.strip():
-            st.error("Don't forget to write a message.")
-        else:
+    if not submitted:
+        return
+
+    if st.session_state.get("contact_hp_field"):
+        # Pretend it worked — telling a bot it was caught only helps it adapt.
+        st.session_state["contact_name"] = name.strip().split()[0] if name.strip() else "friend"
+        st.session_state["contact_sent"] = True
+        st.rerun()
+
+    if not name.strip():
+        st.error("Please tell me your name.")
+    elif not EMAIL_RE.match(email.strip()):
+        st.error("That email address doesn't look right.")
+    elif not message.strip():
+        st.error("Don't forget to write a message.")
+    elif len(message.strip()) > MAX_MESSAGE_CHARS:
+        st.error(f"Please keep it under {MAX_MESSAGE_CHARS} characters.")
+    else:
+        sent, detail = send_contact_message(name.strip(), email.strip(), message.strip())
+        if sent:
             st.session_state["contact_name"] = name.strip().split()[0]
             st.session_state["contact_sent"] = True
             st.rerun()
+        else:
+            print(f"[contact] {detail}", flush=True)
+            st.error("I couldn't send that just now. Please try again in a moment.")
+            direct = _setting("CONTACT_TO_EMAIL")
+            if direct:
+                st.caption(f"Or email me directly at {direct}.")
 
 
 # --------------------------------------------------------------------------
@@ -311,6 +412,8 @@ st.image(f"https://ghchart.rshah.org/{USERNAME}", width="stretch")
 # )
 
 
+st.divider()
+
 # Project section
 
 st.header("Projects 🚀")
@@ -328,6 +431,8 @@ for project in PROJECTS:
         with media_col:
             render_carousel(project["images"], project["name"])
 
+
+st.divider()
 
 # Photosss
 ## display each photo in a grid, each with a fixed size cell, each can be
@@ -405,6 +510,8 @@ else:
 # want to get in touch with me? Reach through here OPEN MODAL
 # name, email, message
 
+st.divider()
+
 st.header("Let's work together 👋")
 st.markdown("Want to get in touch with me? Reach through here.")
 if st.button("Get in touch", type="primary"):
@@ -414,4 +521,5 @@ if st.session_state.get("active_dialog") == "contact":
     contact_dialog()
 
 st.divider()
+
 st.caption(f"Made with Streamlit · © 2026 Epilan, Gian Cedrick · [github.com/{USERNAME}](https://github.com/{USERNAME})")

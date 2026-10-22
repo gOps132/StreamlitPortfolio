@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: portfolio
+    runtime: python
+    plan: free
+    # Closest Render region to the Philippines. This cannot be changed after
+    # the service is created.
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.address 0.0.0.0 --server.port $PORT
+    healthCheckPath: /_stcore/health
+    envVars:
+      # Pinned so a deploy never silently moves to a newer Python. Render's
+      # default is 3.14, where numpy/pandas/pyarrow can fall back to slow
+      # source builds. 3.12 matches .python-version and the README.
+      - key: PYTHON_VERSION
+        value: 3.12.11
+      # Resend API key — https://resend.com/api-keys
+      - key: RESEND_API_KEY
+        sync: false
+      # Where contact form submissions are delivered
+      - key: CONTACT_TO_EMAIL
+        sync: false
+      # Optional sender address. Leave unset to send as
+      # "Portfolio <onboarding@resend.dev>".
+      - key: RESEND_FROM
+        sync: false

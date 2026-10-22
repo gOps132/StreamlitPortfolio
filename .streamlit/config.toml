@@ -1,0 +1,7 @@
+[server]
+# The app is deployed as a server (Render, Docker, Codespaces), so it must not
+# try to open a browser or reach out to Google for usage stats.
+headless = true
+
+[browser]
+gatherUsageStats = false

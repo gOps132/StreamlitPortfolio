@@ -4,8 +4,26 @@ __pycache__/
 .venv/
 venv/
 
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets — never commit real keys.
+# .env holds local values; .env.example is the committed template.
+.env
+.env.*
+!.env.example
+
 # Streamlit
 .streamlit/secrets.toml
+.streamlit/secrets.*.toml
+
+# Other common secret formats
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Full resolution source photos — the app serves the pre-rendered
 # versions in images/gallery, images/thumbs and images/projects.
@@ -13,3 +31,4 @@ images/_originals/
 
 # OS
 .DS_Store
+._*
