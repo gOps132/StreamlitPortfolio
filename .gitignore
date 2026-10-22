@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Full resolution source photos — the app serves the pre-rendered
+# versions in images/gallery, images/thumbs and images/projects.
+images/_originals/
+
+# OS
+.DS_Store
